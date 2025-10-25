@@ -1,55 +1,46 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::parinfer::{self};
+use crate::parinfer;
 use unicode_width::UnicodeWidthStr;
 
-use crate::types::{self};
-use mlua::prelude::*;
+use crate::types;
 use std::str::FromStr;
 
 macro_rules! runtime_error {
     ($msg:expr) => {
-        mlua::Error::RuntimeError($msg.into())
+        Err(mlua::Error::RuntimeError($msg.into()))
     };
 }
 
 macro_rules! conversion_error {
     ($from:literal, $to:literal, $message:expr) => {
-        mlua::Error::FromLuaConversionError {
+        Err(mlua::Error::FromLuaConversionError {
             from: $from,
             to: $to.into(),
             message: $message,
-        }
+        })
     };
 }
 
 pub(crate) fn parinfer_shift_indent(
     lua: &mlua::Lua,
     (tab_stops, dx, x): (Vec<IntegrationTabStop>, i32, i32),
-) -> LuaResult<LuaValue> {
+) -> mlua::Result<mlua::Value> {
     lua.pack(shift_indent(&tab_stops, dx, x))
 }
 
 pub(crate) fn parinfer_to_bytepos(
     lua: &mlua::Lua,
-    (line, charpos): (mlua::String, usize),
-) -> LuaResult<LuaValue> {
-    if let Ok(line) = line.to_str() {
-        charpos_to_bytepos(&line, charpos).into_lua(lua)
-    } else {
-        Err(runtime_error!(format!("invalid line {line:?}")))
-    }
+    (line, charpos): (String, usize),
+) -> mlua::Result<mlua::Value> {
+    lua.pack(charpos_to_bytepos(&line, charpos))
 }
 
 pub(crate) fn parinfer_to_charpos(
     lua: &mlua::Lua,
-    (line, bytepos): (mlua::String, usize),
-) -> LuaResult<LuaValue> {
-    if let Ok(line) = line.to_str() {
-        bytepos_to_charpos(&line, bytepos).into_lua(lua)
-    } else {
-        Err(runtime_error!(format!("invalid line {line:?}")))
-    }
+    (line, bytepos): (String, usize),
+) -> mlua::Result<mlua::Value> {
+    lua.pack(bytepos_to_charpos(&line, bytepos))
 }
 
 // Input is a table with the following keys:
@@ -63,10 +54,8 @@ pub(crate) fn parinfer_to_charpos(
 // Returns { tab_stops: [number;4], paren_trails: [number;3], error: { name: string, message: string, row: number, col: number } }
 // and, if there's any difference between the new state and the previous state, a 4-element array describing their difference (See `diff_slice` for what that means).
 pub(crate) fn parinfer_run(lua: &mlua::Lua, value: mlua::Value) -> mlua::Result<mlua::MultiValue> {
-    let table = if let Some(table) = value.as_table() {
-        table
-    } else {
-        return lua.pack_multi(runtime_error!("expected table"));
+    let Some(table) = value.as_table() else {
+        return runtime_error!("expected table");
     };
 
     let dialect: Dialect = table.get(1)?;
@@ -76,9 +65,9 @@ pub(crate) fn parinfer_run(lua: &mlua::Lua, value: mlua::Value) -> mlua::Result<
         .ok()
         .zip(table.get::<Cursor>(3).ok())
         .map(Ok)
-        .unwrap_or(Err(runtime_error!(
+        .unwrap_or(runtime_error!(
             "invalid state, current_lines (2) or current_cursor (3) is missing"
-        )))?;
+        ))?;
     // previous lines and cursor, must be both present or both absent
     // anything else is ignored since it's invalid
     let previous_state = table
@@ -135,7 +124,7 @@ fn run(
         let new_lines = answer
             .text
             .split('\n')
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>();
         let changes = diff_slice(&cur_lines, &new_lines);
         let (row, charpos) = answer.cursor_line.zip(answer.cursor_x).unwrap();
@@ -225,8 +214,7 @@ fn test_bytepos_to_charpos() {
 fn charpos_to_bytepos(line: &str, charidx: usize) -> usize {
     line.grapheme_indices(true)
         .nth(charidx)
-        .map(|(i, _)| i)
-        .unwrap_or(line.len())
+        .map_or(line.len(), |(i, _)| i)
 }
 
 #[test]
@@ -264,7 +252,7 @@ fn shift_indent(tab_stops: &[IntegrationTabStop], dx: i32, x: i32) -> i32 {
             });
 
     tabs.dedup();
-    tabs.sort();
+    tabs.sort_unstable();
 
     if dx < 0 {
         tabs.into_iter().rfind(|&i| i < x)
@@ -290,27 +278,26 @@ type IntegrationParenTrail = [usize; 3];
 type IntegrationTabStop = [usize; 4];
 struct IntegrationResponse {
     tab_stops: Vec<IntegrationTabStop>,
-    /// vector of [line_no, start_x, end_x], for each paren_trail i.e. `closers`
+    // vector of [line_no, start_x, end_x], for each paren_trail i.e. `closers`
     paren_trails: Vec<IntegrationParenTrail>,
     error: Option<IntegrationError>,
 }
 
 impl IntegrationResponse {
-    fn new<'a>(value: &types::Answer<'a>) -> Self {
-        let tab_stops = value
-            .tab_stops
-            .iter()
-            .map(|t| {
-                [
-                    t.line_no,
-                    t.x,
-                    t.ch.bytes().next().unwrap_or(0x28).into(),
-                    t.arg_x.unwrap_or(0),
-                ]
-            })
-            .collect();
+    fn new(value: &types::Answer<'_>) -> Self {
         Self {
-            tab_stops,
+            tab_stops: value
+                .tab_stops
+                .iter()
+                .map(|t| {
+                    [
+                        t.line_no,
+                        t.x,
+                        t.ch.bytes().next().unwrap_or(0x28).into(),
+                        t.arg_x.unwrap_or(0),
+                    ]
+                })
+                .collect(),
             paren_trails: value
                 .paren_trails
                 .iter()
@@ -322,12 +309,12 @@ impl IntegrationResponse {
 }
 
 impl mlua::IntoLua for IntegrationResponse {
-    fn into_lua(self, lua: &Lua) -> LuaResult<LuaValue> {
+    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
         let info = lua.create_table()?;
         info.set("tab_stops", self.tab_stops)?;
         info.set("paren_trails", self.paren_trails)?;
         info.set("error", self.error)?;
-        Ok(LuaValue::Table(info))
+        Ok(mlua::Value::Table(info))
     }
 }
 
@@ -350,13 +337,13 @@ impl IntegrationError {
 }
 
 impl mlua::IntoLua for IntegrationError {
-    fn into_lua(self, lua: &Lua) -> LuaResult<LuaValue> {
+    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
         let table = lua.create_table()?;
         table.set("name", self.name)?;
         table.set("message", self.message)?;
         table.set("col", self.col)?;
         table.set("row", self.row)?;
-        Ok(LuaValue::Table(table))
+        Ok(mlua::Value::Table(table))
     }
 }
 
@@ -379,7 +366,7 @@ impl FromStr for Dialect {
             "yuck" => Ok(Dialect::Yuck),
             "racket" | "scheme" | "chicken" | "query" => Ok(Dialect::Scheme),
             s if s.contains("lisp") => Ok(Dialect::Lisp),
-            "clojure" | "fennel" | "carp" | "wast" => Ok(Dialect::Clojure),
+            // "clojure" ,"fennel","carp", "wast"...
             _ => Ok(Dialect::Clojure),
         }
     }
@@ -387,22 +374,19 @@ impl FromStr for Dialect {
 
 impl mlua::FromLua for Dialect {
     fn from_lua(value: mlua::Value, _lua: &mlua::Lua) -> mlua::Result<Self> {
-        let out = match value {
+        match value {
             mlua::Value::String(lang) => match lang.to_str() {
-                Ok(s) => Dialect::from_str(&s).unwrap_or(Dialect::Clojure),
-                Err(_) => Dialect::Clojure,
+                Ok(s) => Ok(Dialect::from_str(&s).unwrap_or(Dialect::Clojure)),
+                Err(_) => Ok(Dialect::Clojure),
             },
-            _ => {
-                return Err(conversion_error!("string", "Dialect", None));
-            }
-        };
-        Ok(out)
+            _ => conversion_error!("string", "Dialect", None),
+        }
     }
 }
 
 impl Dialect {
-    fn options(&self) -> crate::types::Options {
-        let mut options = crate::types::Options {
+    fn options(&self) -> types::Options {
+        let mut options = types::Options {
             cursor_line: None,
             cursor_x: None,
             prev_cursor_x: None,
@@ -422,7 +406,8 @@ impl Dialect {
         match self {
             Dialect::Hy => options.hy_bracket_strings = true,
             Dialect::Yuck => {
-                options.string_delimiters = vec!["\"".to_string(), "'".to_string(), "`".to_string()]
+                options.string_delimiters.push("'".to_string());
+                options.string_delimiters.push("`".to_string());
             }
             Dialect::Janet => {
                 options.comment_char = '#';
@@ -438,7 +423,7 @@ impl Dialect {
                 options.scheme_sexp_comments = true;
                 options.guile_block_comments = true;
             }
-            _ => (),
+            Dialect::Clojure => (),
         }
         options
     }
@@ -446,25 +431,31 @@ impl Dialect {
 
 #[test]
 fn dialect_from_str() {
-    let scheme = vec!["scheme", "racket", "chicken", "query"];
+    let scheme = ["scheme", "racket", "chicken", "query"];
     for lang in scheme {
         assert_eq!(Dialect::from_str(lang), Ok(Dialect::Scheme));
     }
-    let langs = vec!["clojure", "fennel", "carp", "wast"];
+    let langs = ["clojure", "fennel", "carp", "wast"];
     for lang in langs {
         assert_eq!(Dialect::from_str(lang), Ok(Dialect::Clojure));
     }
-    let langs = vec!["commonlisp", "lisp", "maclisp"];
+    let langs = ["commonlisp", "lisp", "maclisp"];
     for lang in langs {
         assert_eq!(Dialect::from_str(lang), Ok(Dialect::Lisp));
     }
+    assert_eq!(Dialect::from_str("hy"), Ok(Dialect::Hy));
+    assert_eq!(Dialect::from_str("janet"), Ok(Dialect::Janet));
+    assert_eq!(Dialect::from_str("yuck"), Ok(Dialect::Yuck));
 }
 
 #[test]
 fn test_run() {
     macro_rules! string_split {
         ($text:expr) => {
-            $text.split('\n').map(|s| s.to_string()).collect::<Vec<_>>()
+            $text
+                .split('\n')
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
         };
     }
     macro_rules! editor_state {
