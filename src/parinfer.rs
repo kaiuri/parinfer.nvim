@@ -1,3 +1,4 @@
+#![allow(clippy::style)]
 // ISC License
 //
 // Copyright (c) 2018, Jason Felice and Contributors

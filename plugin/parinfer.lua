@@ -118,7 +118,7 @@ local parinfer_on_filetype = function(ctx)
 
   vim.api.nvim_buf_set_var(ctx.buf, "parinfer_enabled", true)
   vim.api.nvim_exec_autocmds("User", { pattern = "Parinfer", modeline = false })
-  parinfer_run(ctx.buf)
+  vim.schedule(function() parinfer_run(ctx.buf) end) -- schedule so that if <afile> is at `argv`, loading isn't blocked
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "TextChangedP", "TextChangedI", "TextChanged" }, {
     group = ctx.group,
     buffer = ctx.buf,
