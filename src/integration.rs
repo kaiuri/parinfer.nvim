@@ -67,7 +67,6 @@ fn run(
     previous_state: Option<State>,
 ) -> (IntegrationResponse, Option<[usize; 4]>, Option<State>) {
     let mut options = crate::dialect::dialect_options(dialect);
-    let mut mode = "paren";
     let cur_lines = {
         let (lines, [lnum, bytepos]) = current_state;
         let row = lnum - 1;
@@ -77,7 +76,6 @@ fn run(
     };
 
     if let Some((lines, [lnum, bytepos])) = previous_state {
-        mode = "smart";
         options.prev_text = Some(lines.join("\n"));
         if !lines.is_empty() {
             options.prev_cursor_line = Some(lnum - 1);
@@ -85,7 +83,7 @@ fn run(
         }
     }
     let request = types::Request {
-        mode: mode.into(),
+        mode: "smart".into(),
         text: cur_lines.join("\n"),
         options,
     };

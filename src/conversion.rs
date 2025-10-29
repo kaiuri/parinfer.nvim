@@ -45,7 +45,7 @@ pub fn diff_slice<T: std::cmp::Eq>(a: &[T], b: &[T]) -> Option<Diff> {
     }
     let mut it = a.iter().enumerate().zip(b.iter().enumerate());
     let stop = it.rfind(|(a, b)| a != b)?;
-    let start = it.find(|(a, b)| a != b).unwrap_or(stop);// we've exausted the iterator, so only a single element is different
+    let start = it.find(|(a, b)| a != b).unwrap_or(stop); // we've exausted the iterator, so only a single element is different
     Some([start.0.0, stop.0.0, start.1.0, stop.1.0])
 }
 
