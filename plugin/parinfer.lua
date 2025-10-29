@@ -112,7 +112,7 @@ end
 --- initialization event
 --- @param ctx vim.api.keyset.create_autocmd.callback_args
 local parinfer_on_filetype = function(ctx)
-  if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly then
+  if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly or vim.b.dev_base then
     return
   end
 
