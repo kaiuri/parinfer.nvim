@@ -12,7 +12,7 @@ use unicode_width::UnicodeWidthStr;
 pub fn bytepos_to_charpos(line: &str, bytecol: usize) -> usize {
     line.grapheme_indices(true)
         .position(|(i, _)| i >= bytecol)
-        .unwrap_or(line.width_cjk())
+        .unwrap_or_else(|| line.width_cjk())
 }
 /// Converts a visual column 0-indexed to its byte column counterpart.
 ///
