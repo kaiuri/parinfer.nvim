@@ -5,7 +5,7 @@ mod integration;
 mod parinfer;
 mod types;
 
-#[mlua::lua_module]
+#[mlua::lua_module(name = "parinfer")]
 fn parinfer_lib(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
     let exports = lua.create_table()?;
     exports.set("run", lua.create_function(integration::parinfer_run)?)?;

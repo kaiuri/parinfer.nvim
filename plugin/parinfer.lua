@@ -2,14 +2,14 @@ if vim.g.loaded_parinfer ~= nil then
   return
 end
 
-if not pcall(require, "parinfer_lib") then
-  return vim.notify("parinfer.nvim requires libparinfer_nvim.so, cd into the plugin and run `make all`")
+if not pcall(require, "parinfer") then
+  return vim.notify("parinfer.nvim requires parinfer.so, cd into the plugin and run `make all`")
 end
 
 vim.g.loaded_parinfer = true
 
 ---@type parinfer_lib
-local parinfer_lib = assert(package.loaded.parinfer_lib, "parinfer_lib not loaded")
+local parinfer = assert(package.loaded.parinfer, "parinfer_lib not loaded")
 ---@type parinfer_plugin_results
 local parinfer_results = {}
 ---@type parinfer_plugin_state
@@ -25,7 +25,7 @@ local parinfer_run = function(buf)
   -- after the call to parinfer_lib.run
   -- state[2] is now the new lines and state[3] is now the new cursor
   -- state[4] and state[5] are the old state[2] and state[3] respectively
-  local result, changes = parinfer_lib.run(state)
+  local result, changes = parinfer.run(state)
   -- changes is nil if nothing needs fixing, which might happen even on successful runs
   -- instead of checking the undotree, we try to undojoin, which throws when outside an undoleaf
   -- it keeps state in sync and has less overhead than running undotree() and :silent! undojoin
@@ -63,7 +63,7 @@ local parinfer_decoration_provider = {
       local line_no = paren_trail[1]
       if line_no >= toprow and line_no <= botrow then
         local line = lines[line_no - toprow + 1]
-        local start_x = parinfer_lib.to_bytepos(line, paren_trail[2])
+        local start_x = parinfer.to_bytepos(line, paren_trail[2])
         local offset = start_x - paren_trail[2]
         extmark_opts.end_row = line_no
         extmark_opts.end_col = paren_trail[3] + offset
@@ -90,7 +90,7 @@ local parinfer_shift_indent = function(dx)
 
   local line = vim.api.nvim_get_current_line()
   local indent = select(2, line:find("^%s*"))
-  local new_indent = parinfer_lib.shift_indent(response.tab_stops, dx, indent)
+  local new_indent = parinfer.shift_indent(response.tab_stops, dx, indent)
   if new_indent == indent then return end
   local new_line = string.gsub(line, "^%s*", string.rep(" ", new_indent))
   vim.api.nvim_set_current_line(new_line)
@@ -132,7 +132,7 @@ vim.api.nvim_set_keymap("i", "<plug>(parinfer-indent)", "", { noremap = true, ca
 vim.api.nvim_set_keymap("i", "<plug>(parinfer-dedent)", "", { noremap = true, callback = function() parinfer_shift_indent(-1) end })
 --- commands
 vim.api.nvim_create_user_command("ParinferDecorations", parinfer_decorations, { force = true, nargs = "?" })
-vim.api.nvim_set_hl(0, "ParinferParenTrail", { link = "DiffChange" })
+vim.api.nvim_set_hl(0, "ParinferParenTrail", { link = "NonText" })
 --- autocmds
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "clojure", "scheme", "lisp", "racket", "hy", "fennel", "janet", "carp", "wast", "yuck", "dune", "chicken", "query" },
