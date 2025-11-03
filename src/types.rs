@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //
 // Copyright (c) 2018, Jason Felice and Contributors
 //

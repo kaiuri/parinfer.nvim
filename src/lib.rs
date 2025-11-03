@@ -1,29 +1,17 @@
 mod changes;
 mod conversion;
 mod dialect;
-mod integration;
+mod neovim;
 mod parinfer;
 mod types;
 
 #[mlua::lua_module(name = "parinfer")]
 fn parinfer_lib(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
     let exports = lua.create_table()?;
-    exports.set("run", lua.create_function(integration::parinfer_run)?)?;
-    exports.set(
-        "shift_indent",
-        lua.create_function(integration::parinfer_shift_indent)?,
-    )?;
-    exports.set(
-        "to_charpos",
-        lua.create_function(|lua, (line, bytepos): (String, usize)| {
-            lua.pack(conversion::bytepos_to_charpos(&line, bytepos))
-        })?,
-    )?;
-    exports.set(
-        "to_bytepos",
-        lua.create_function(|lua, (line, bytepos): (String, usize)| {
-            lua.pack(conversion::charpos_to_bytepos(&line, bytepos))
-        })?,
-    )?;
+    exports.set("refresh", lua.create_function(neovim::refresh)?)?;
+    exports.set("init", lua.create_function(neovim::init)?)?;
+    exports.set("indent", lua.create_function(neovim::indent)?)?;
+    exports.set("decorations", lua.create_function(neovim::decorations)?)?;
+    exports.set("suggestions", lua.create_function(neovim::suggestions)?)?;
     Ok(exports)
 }
