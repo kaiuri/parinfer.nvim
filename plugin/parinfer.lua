@@ -72,13 +72,13 @@ end
 
 -- indentation
 --- indentation controller
----@param dx -1|1 # less than 0 means dedent, greater than 0 means indent
-local parinfer_shift_indent = function(dx)
+---@param dedent? boolean
+local parinfer_shift_indent = function(dedent)
   local buf = vim.api.nvim_get_current_buf()
   local response = responses[buf]
   if response == nil then return end
 
-  local line, cursor = parinfer.indent(response, dx)
+  local line, cursor = parinfer.indent(response, dedent)
   vim.api.nvim_set_current_line(line)
   vim.api.nvim_win_set_cursor(0, cursor)
 end
@@ -112,8 +112,8 @@ end
 
 -- init plugin
 --- default mappings
-vim.api.nvim_set_keymap("i", "<plug>(parinfer-indent)", "", { noremap = true, callback = function() parinfer_shift_indent(1) end })
-vim.api.nvim_set_keymap("i", "<plug>(parinfer-dedent)", "", { noremap = true, callback = function() parinfer_shift_indent(-1) end })
+vim.api.nvim_set_keymap("i", "<plug>(parinfer-indent)", "", { noremap = true, callback = function() parinfer_shift_indent() end })
+vim.api.nvim_set_keymap("i", "<plug>(parinfer-dedent)", "", { noremap = true, callback = function() parinfer_shift_indent(true) end })
 --- commands
 vim.api.nvim_create_user_command("ParinferDecorations", parinfer_decorations, { force = true, nargs = "?" })
 vim.api.nvim_set_hl(0, "ParinferParenTrail", { link = "NonText" })

@@ -43,19 +43,6 @@ pub struct EditorState {
 
 impl mlua::UserData for EditorState {}
 
-pub enum Direction {
-    Forward,
-    Backward,
-}
-
-impl mlua::FromLua for Direction {
-    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
-        match value.as_i32() {
-            Some(i) if i < 0 => Ok(Self::Backward),
-            _ => Ok(Self::Forward),
-        }
-    }
-}
 pub fn suggestions(
     lua: &mlua::Lua,
     res: mlua::UserDataRef<EditorState>,
@@ -77,7 +64,7 @@ pub fn suggestions(
 
 pub fn indent(
     lua: &mlua::Lua,
-    (res, dx): (mlua::UserDataRef<EditorState>, Direction),
+    (res, dedent): (mlua::UserDataRef<EditorState>, Option<bool>),
 ) -> mlua::Result<mlua::MultiValue> {
     let indent = &res.lines[res.cursor_line]
         .bytes()
@@ -94,15 +81,14 @@ pub fn indent(
     tabs.dedup();
     tabs.sort_unstable();
 
-    let newindent = match dx {
-        Direction::Forward => tabs
-            .into_iter()
-            .find(|i| i > indent)
-            .unwrap_or_else(|| indent.saturating_add(2)),
-        Direction::Backward => tabs
-            .into_iter()
+    let newindent = if dedent.is_some_and(|d| d) {
+        tabs.into_iter()
             .rfind(|i| i < indent)
-            .unwrap_or_else(|| indent.saturating_sub(2)),
+            .unwrap_or_else(|| indent.saturating_sub(2))
+    } else {
+        tabs.into_iter()
+            .find(|i| i > indent)
+            .unwrap_or_else(|| indent.saturating_add(2))
     };
     let mut new_line = String::from(&res.lines[res.cursor_line]);
     new_line.replace_range(0..*indent, &" ".repeat(newindent));
