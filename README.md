@@ -2,14 +2,12 @@
 
 Easy peasy lemon squeezy out those parenthesaches from your nuggin 🤕
 
-<details>
-<summary><h2>Demo 🎥</h2></summary>
+<h2>Demo 🎥</h2>
 <div align="center">
 
 https://github.com/user-attachments/assets/9e746a26-a869-4fbc-9c37-481f9687731f
 
 </div>
-</details>
 
 ## Requirements 🧰
 
@@ -23,7 +21,7 @@ https://github.com/user-attachments/assets/9e746a26-a869-4fbc-9c37-481f9687731f
 mkdir -p ~/.vim/pack/kaiuri/start
 cd ~/.vim/pack/kaiuri/start
 git clone https://github.com/kaiuri/parinfer.nvim
-make all
+make build
 ```
 
 ## Usage 👓

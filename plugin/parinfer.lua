@@ -1,6 +1,4 @@
-if vim.g.loaded_parinfer ~= nil then
-  return
-end
+if vim.g.loaded_parinfer ~= nil then return end
 
 vim.g.loaded_parinfer = true
 
@@ -25,7 +23,8 @@ local parinfer_run = function(buf)
   -- instead of checking the undotree, we try to undojoin, which throws when outside an undoleaf
   -- it keeps state in sync and has less overhead than running undotree() and :silent! undojoin
   if changes and pcall(vim.api.nvim_exec2, "silent undojoin", { output = false }) then
-    vim.api.nvim_buf_set_lines(buf, changes[1], changes[2] + 1, false, table.move(state[2], changes[3] + 1, changes[4] + 1, 1, {}))
+    local changed_lines = table.move(state[2], changes[3] + 1, changes[4] + 1, 1, {})
+    vim.api.nvim_buf_set_lines(buf, changes[1], changes[2] + 1, false, changed_lines)
     vim.api.nvim_win_set_cursor(0, state[3])
   end
   parinfer_results[buf] = result
@@ -44,9 +43,7 @@ local parinfer_decoration_provider = {
   end,
   on_win = function(_, winid, bufnr, toprow, botrow)
     local response = parinfer_results[bufnr]
-    if response == nil then
-      return false
-    end
+    if response == nil then return false end
     local ns = parinfer_namespace
     vim.api.nvim_buf_clear_namespace(bufnr, ns, toprow, botrow)
     local paren_trails = response.paren_trails
@@ -95,7 +92,6 @@ local parinfer_shift_indent = function(dx)
   vim.api.nvim_win_set_cursor(0, cursor)
 end
 
-
 -- event handlers
 --- refreshing events
 ---@param ctx vim.api.keyset.create_autocmd.callback_args
@@ -108,9 +104,7 @@ end
 --- initialization event
 --- @param ctx vim.api.keyset.create_autocmd.callback_args
 local parinfer_on_filetype = function(ctx)
-  if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly or vim.b.dev_base then
-    return
-  end
+  if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly or vim.b.dev_base then return end
 
   vim.api.nvim_buf_set_var(ctx.buf, "parinfer_enabled", true)
   vim.api.nvim_exec_autocmds("User", { pattern = "Parinfer", modeline = false })
@@ -122,6 +116,7 @@ local parinfer_on_filetype = function(ctx)
   })
 end
 
+-- stylua: ignore start
 -- init plugin
 --- default mappings
 vim.api.nvim_set_keymap("i", "<plug>(parinfer-indent)", "", { noremap = true, callback = function() parinfer_shift_indent(1) end })
