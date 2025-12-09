@@ -7,28 +7,40 @@ if not pcall(require, "parinfer") then
 end
 
 vim.g.loaded_parinfer = true
-
+---@alias ParinferEditorState userdata
+---@class ParinferSuggestions
+---@field lines string[]
+---@field cursor ([number, number])
+---@field insert_start number
+---@field insert_end number
+---@class Parinfer
+---@field decorations fun(state: ParinferEditorState, toprow: number, botrow: number): [number, number, number][]
+---@field init fun(language: string, lines: string[], cursor: ([number,number])): ParinferEditorState
+---@field indent fun(state: ParinferEditorState, dedent?: boolean): string, ([number, number])
+---@field refresh fun(state: ParinferEditorState, lines: string[], cursor: ([number,number])): nil
+---@field suggestions fun(state: ParinferEditorState): ParinferSuggestions?
 local parinfer = assert(package.loaded.parinfer, "parinfer_lib not loaded")
-local responses = {}
+---@type table<integer, ParinferEditorState?>
+local states = {}
 
 ---------- format ----------
 ---runs parinfer on a buffer
 ---@param buf integer
 local parinfer_run = function(buf)
-  if responses[buf] then
+  if states[buf] then
     parinfer.refresh(
-      responses[buf],
+      states[buf],
       vim.api.nvim_buf_get_lines(buf, 0, -1, false),
       vim.api.nvim_win_get_cursor(0)
     )
   else
-    responses[buf] = parinfer.init(
+    states[buf] = parinfer.init(
       vim.bo.filetype,
       vim.api.nvim_buf_get_lines(buf, 0, -1, false),
       vim.api.nvim_win_get_cursor(0)
     )
   end
-  local suggestions = parinfer.suggestions(responses[buf])
+  local suggestions = parinfer.suggestions(states[buf])
   if suggestions and pcall(vim.api.nvim_exec2, "silent undojoin", { output = false }) then
     vim.api.nvim_buf_set_lines(buf, suggestions.insert_start, suggestions.insert_end + 1, false, suggestions.lines)
     vim.api.nvim_win_set_cursor(0, suggestions.cursor)
@@ -43,16 +55,14 @@ local parinfer_namespace = vim.api.nvim_create_namespace("parinfer")
 local parinfer_decoration_provider = {
   on_buf = function(_, bufnr)
     ---@diagnostic disable-next-line: redundant-return-value
-    return responses[bufnr] ~= nil
+    return states[bufnr] ~= nil
   end,
   on_win = function(_, winid, bufnr, toprow, botrow)
-    local response = responses[bufnr]
-    if response == nil then
-      return false
-    end
+    local state = states[bufnr]
+    if state == nil then return false end
     local ns = parinfer_namespace
     vim.api.nvim_buf_clear_namespace(bufnr, ns, toprow, botrow)
-    local paren_trails = parinfer.decorations(response, toprow, botrow)
+    local paren_trails = parinfer.decorations(state, toprow, botrow)
     ---@type vim.api.keyset.set_extmark
     local extmark_opts = { ephemeral = true, hl_group = "ParinferParenTrail", hl_mode = "combine" }
     for _, paren_trail in ipairs(paren_trails) do
@@ -75,10 +85,9 @@ end
 ---@param dedent? boolean
 local parinfer_shift_indent = function(dedent)
   local buf = vim.api.nvim_get_current_buf()
-  local response = responses[buf]
-  if response == nil then return end
-
-  local line, cursor = parinfer.indent(response, dedent)
+  local state = states[buf]
+  if state == nil then return end
+  local line, cursor = parinfer.indent(state, dedent)
   vim.api.nvim_set_current_line(line)
   vim.api.nvim_win_set_cursor(0, cursor)
 end
