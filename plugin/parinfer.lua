@@ -114,6 +114,8 @@ local parinfer_on_filetype = function(ctx)
     buffer = ctx.buf,
     callback = parinfer_on_editor_changed,
   })
+  vim.api.nvim_buf_set_keymap(ctx.buf, "i", "<c-t>", "<plug>(parinfer-indent)", { noremap = true })
+  vim.api.nvim_buf_set_keymap(ctx.buf, "i", "<c-d>", "<plug>(parinfer-dedent)", { noremap = true })
 end
 
 -- stylua: ignore start
