@@ -7,7 +7,7 @@ update:
 	cargo update --quiet
 
 .PHONY: build
-build: update
+build:
 	cargo build --release --quiet
 	mkdir -p ${script_dir}/lua
 	cp ${script_dir}/target/release/lib${release_name}.so ${script_dir}/lua/${release_name}.so
