@@ -122,8 +122,8 @@ fn shift_indent(tab_stops: &[IntegrationTabStop], dx: &Direction, x: usize) -> u
                 tabs
             });
 
-    tabs.dedup();
     tabs.sort_unstable();
+    tabs.dedup();
 
     match dx {
         Direction::Forward => tabs
