@@ -1,6 +1,5 @@
 mod changes;
 mod conversion;
-mod dialect;
 mod integration;
 mod parinfer;
 mod types;

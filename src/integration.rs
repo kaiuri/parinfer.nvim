@@ -58,10 +58,11 @@ pub fn parinfer_run(lua: &mlua::Lua, value: mlua::Value) -> mlua::Result<mlua::M
     let changes = conversion::diff_ranges(&current_state.0, &new_lines).map(
         |(
             Range { start, end },
-            Range { start: start2, end: end2 },
-        )| {
-            [ start, end.saturating_sub(1), start2, end2.saturating_sub(1) ]
-        },
+            Range {
+                start: start2,
+                end: end2,
+            },
+        )| { [start, end.saturating_sub(1), start2, end2.saturating_sub(1)] },
     );
 
     // current_state is now also the previous_state
@@ -81,7 +82,7 @@ fn run(
     (lines, [cursor_line, cursor_x]): &State,
     previous_state: &Option<State>,
 ) -> (IntegrationResponse, State) {
-    let mut options = crate::dialect::dialect_options(dialect);
+    let mut options = dialect_options(dialect);
     options.cursor_line = Some(*cursor_line);
     options.cursor_x = Some(*cursor_x);
 
@@ -229,6 +230,50 @@ impl mlua::IntoLua for IntegrationError {
         table.set("row", self.row)?;
         Ok(mlua::Value::Table(table))
     }
+}
+
+pub fn dialect_options(lang: &str) -> types::Options {
+    let mut options = types::Options {
+        cursor_line: None,
+        cursor_x: None,
+        prev_cursor_x: None,
+        prev_cursor_line: None,
+        prev_text: None,
+        selection_start_line: None,
+        changes: vec![],
+        comment_char: ';',
+        lisp_vline_symbols: false,
+        lisp_block_comments: false,
+        guile_block_comments: false,
+        scheme_sexp_comments: false,
+        janet_long_strings: false,
+        hy_bracket_strings: false,
+        string_delimiters: vec!["\"".to_string()],
+    };
+    match lang {
+        "hy" => options.hy_bracket_strings = true,
+        "yuck" => {
+            options.string_delimiters.push("'".to_string());
+            options.string_delimiters.push("`".to_string());
+        }
+        "janet" => {
+            options.comment_char = '#';
+            options.janet_long_strings = true;
+        }
+        s if s.contains("lisp") => {
+            options.lisp_vline_symbols = true;
+            options.lisp_block_comments = true;
+        }
+        "racket" | "scheme" | "chicken" | "query" => {
+            options.lisp_vline_symbols = true;
+            options.lisp_block_comments = true;
+            options.scheme_sexp_comments = true;
+            options.guile_block_comments = true;
+        }
+        "clojure" | "fennel" | "carp" | "wast" => (),
+        _ => (),
+    }
+    options
 }
 
 #[test]
