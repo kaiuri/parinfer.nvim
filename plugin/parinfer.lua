@@ -31,8 +31,7 @@ local parinfer_buffer_states = {}
 ---@field to_bytepos fun(line: string, charpos: number): number
 ---@field shift_indent fun(tab_stops: tab_stop[], dx: number, x: number): number
 local parinfer_lib = require("parinfer")
----------- format ----------
----runs parinfer on a buffer
+
 ---@param buf integer
 local parinfer_run = function(buf)
   local buffer_state = parinfer_buffer_states[buf]
@@ -60,10 +59,8 @@ local parinfer_run = function(buf)
   parinfer_buffer_states[buf] = buffer_state
 end
 
--- decorations
---- parinfer_namespace
 local parinfer_namespace = vim.api.nvim_create_namespace("parinfer")
---- parinfer decoration_provider
+
 ---@type vim.api.keyset.set_decoration_provider
 local parinfer_decoration_provider = {
   on_buf = function(_, bufnr)
@@ -95,15 +92,12 @@ local parinfer_decoration_provider = {
     vim.api.nvim__redraw({ win = winid, valid = false })
   end,
 }
---- decorations controller
 local parinfer_decorations = function()
   local enabled = vim.g.parinfer_decorations
   vim.api.nvim_set_decoration_provider(parinfer_namespace, (enabled and {}) or parinfer_decoration_provider)
   vim.g.parinfer_decorations = not enabled
 end
 
--- indentation
---- indentation controller
 ---@param dx -1|1 # less than 0 means dedent, greater than 0 means indent
 local parinfer_shift_indent = function(dx)
   local buf = vim.api.nvim_get_current_buf()
@@ -121,8 +115,6 @@ local parinfer_shift_indent = function(dx)
   vim.api.nvim_win_set_cursor(0, cursor)
 end
 
--- event handlers
---- refreshing events
 ---@param ctx vim.api.keyset.create_autocmd.callback_args
 local parinfer_on_editor_changed = function(ctx)
   if vim._getvar("b", ctx.buf, "parinfer_enabled") and vim.bo.modifiable and not vim.bo.readonly then
@@ -130,8 +122,7 @@ local parinfer_on_editor_changed = function(ctx)
   end
 end
 
---- initialization event
---- @param ctx vim.api.keyset.create_autocmd.callback_args
+---@param ctx vim.api.keyset.create_autocmd.callback_args
 local parinfer_on_filetype = function(ctx)
   if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly or vim.b.dev_base then return end
 
@@ -147,16 +138,11 @@ local parinfer_on_filetype = function(ctx)
   vim.api.nvim_buf_set_keymap(ctx.buf, "i", "<c-d>", "<plug>(parinfer-dedent)", { noremap = true })
 end
 
--- stylua: ignore start
 -- init plugin
---- default mappings
+vim.api.nvim_set_hl(0, "ParinferParenTrail", { link = "NonText" })
 vim.api.nvim_set_keymap("i", "<plug>(parinfer-indent)", "", { noremap = true, callback = function() parinfer_shift_indent(1) end })
 vim.api.nvim_set_keymap("i", "<plug>(parinfer-dedent)", "", { noremap = true, callback = function() parinfer_shift_indent(-1) end })
---- commands
 vim.api.nvim_create_user_command("ParinferDecorations", parinfer_decorations, { force = true, nargs = "?" })
-vim.api.nvim_set_hl(0, "ParinferParenTrail", { link = "NonText" })
-
---- autocmds
 vim.api.nvim_create_autocmd("FileType", {
   pattern = vim.g.parinfer_filetypes or { "clojure", "scheme", "lisp", "racket", "hy", "fennel", "janet", "carp", "wast", "yuck", "dune", "chicken", "query" },
   group = vim.api.nvim_create_augroup("parinfer", { clear = true }),

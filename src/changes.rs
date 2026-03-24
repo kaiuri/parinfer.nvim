@@ -16,6 +16,9 @@
 
 use crate::types::*;
 pub fn compute_text_changes<'a>(prev_text: &'a str, text: &'a str) -> Vec<Change> {
+    if prev_text == text {
+        return vec![];
+    }
     let mut x: Column = 0;
     let mut line_no: LineNumber = 0;
     let mut start_text: usize = 0;
