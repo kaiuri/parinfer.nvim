@@ -12,7 +12,7 @@ macro_rules! runtime_error {
 
 pub fn parinfer_shift_indent(
     lua: &mlua::Lua,
-    (tab_stops, dx, x): (Vec<IntegrationTabStop>, Direction, usize),
+    (tab_stops, dx, x): (Vec<[usize; 4]>, Direction, usize),
 ) -> mlua::Result<mlua::Value> {
     lua.pack(shift_indent(&tab_stops, &dx, x))
 }
@@ -97,13 +97,22 @@ fn run(
         options,
     };
     let answer = parinfer::process(&request);
+    let response = IntegrationResponse {
+        tab_stops: answer.tab_stops.iter().map(Into::into).collect(),
+        paren_trails: answer.paren_trails.iter().map(Into::into).collect(),
+        error: answer.error.as_ref().map(IntegrationError::new),
+    };
+
     let new_lines = answer
         .text
         .split('\n')
         .map(std::string::ToString::to_string)
         .collect::<Vec<_>>();
-    let cursor = answer.cursor_line.zip(answer.cursor_x).unwrap().into();
-    let response = IntegrationResponse::new(&answer);
+    let cursor = answer
+        .cursor_line
+        .zip(answer.cursor_x)
+        .map(Into::into)
+        .unwrap();
     (response, (new_lines, cursor))
 }
 
@@ -119,7 +128,8 @@ impl mlua::FromLua for Direction {
         }
     }
 }
-fn shift_indent(tab_stops: &[IntegrationTabStop], dx: &Direction, x: usize) -> usize {
+
+pub fn shift_indent(tab_stops: &[[usize; 4]], dx: &Direction, x: usize) -> usize {
     let mut tabs: Vec<usize> =
         tab_stops
             .iter()
@@ -159,37 +169,26 @@ fn test_shift_indent() {
 // ----------------------------------------------
 // collection of structs that we can mlua easily
 type Cursor = [usize; 2];
-type IntegrationParenTrail = [usize; 3];
-type IntegrationTabStop = [usize; 4];
 struct IntegrationResponse {
-    tab_stops: Vec<IntegrationTabStop>,
+    tab_stops: Vec<[usize; 4]>,
     // vector of [line_no, start_x, end_x], for each paren_trail i.e. `closers`
-    paren_trails: Vec<IntegrationParenTrail>,
+    paren_trails: Vec<[usize; 3]>,
     error: Option<IntegrationError>,
 }
 
-impl IntegrationResponse {
-    fn new(value: &types::Answer<'_>) -> Self {
-        Self {
-            tab_stops: value
-                .tab_stops
-                .iter()
-                .map(|t| {
-                    [
-                        t.line_no,
-                        t.x,
-                        t.ch.bytes().next().unwrap_or(0x28).into(),
-                        t.arg_x.unwrap_or(0),
-                    ]
-                })
-                .collect(),
-            paren_trails: value
-                .paren_trails
-                .iter()
-                .map(|t| [t.line_no, t.start_x, t.end_x])
-                .collect(),
-            error: value.error.as_ref().map(IntegrationError::new),
-        }
+impl From<&types::TabStop<'_>> for [usize; 4] {
+    fn from(val: &types::TabStop<'_>) -> Self {
+        [
+            val.line_no,
+            val.x,
+            val.ch.bytes().next().unwrap_or(0x28).into(),
+            val.arg_x.unwrap_or(0),
+        ]
+    }
+}
+impl From<&types::ParenTrail> for [usize; 3] {
+    fn from(val: &types::ParenTrail) -> Self {
+        [val.line_no, val.start_x, val.end_x]
     }
 }
 
