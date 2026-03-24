@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::conversion;
+use crate::position;
 use crate::parinfer;
 use crate::types;
 
@@ -24,7 +24,7 @@ impl mlua::FromLua for EditorState {
         let lines = table.get::<Vec<String>>(1)?;
         let [lnum, bytepos] = table.get::<[usize; 2]>(2)?;
         let row = lnum - 1;
-        let charpos = conversion::bytepos_to_charpos(&lines[row], bytepos);
+        let charpos = position::bytepos_to_charpos(&lines[row], bytepos);
         Ok(Self {
             lines,
             cursor: [row, charpos],
@@ -37,7 +37,7 @@ impl mlua::IntoLua for EditorState {
         let lines = self.lines;
         let [row, charpos] = self.cursor;
         let lnum = row + 1;
-        let bytepos = conversion::charpos_to_bytepos(&lines[row], charpos);
+        let bytepos = position::charpos_to_bytepos(&lines[row], charpos);
         table.set(1, lines)?;
         table.set(2, [lnum, bytepos])?;
         Ok(mlua::Value::Table(table))
@@ -80,7 +80,7 @@ pub fn run(
         .map(Into::into)
         .unwrap();
     let response = IntegrationResponse {
-        changes: conversion::diff_ranges(&current_state.lines, &lines).map(
+        changes: position::diff_ranges(&current_state.lines, &lines).map(
             |(
                 Range { start, end },
                 Range {
