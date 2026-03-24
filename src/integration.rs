@@ -10,100 +10,66 @@ macro_rules! runtime_error {
     };
 }
 
-pub fn parinfer_shift_indent(
-    lua: &mlua::Lua,
-    (tab_stops, dx, x): (Vec<[usize; 4]>, Direction, usize),
-) -> mlua::Result<mlua::Value> {
-    lua.pack(shift_indent(&tab_stops, &dx, x))
+#[derive(Debug, PartialEq, Clone)]
+pub struct EditorState {
+    lines: Vec<String>,
+    cursor: [usize; 2],
 }
 
-// Input is a table with the following keys:
-//   [1] string (dialect)
-//   [2..3] (string[], [number, number]) (current state)
-//   [4..5] (string[], [number, number])? (previous state)
-// Will shift 2. and 3. to 4. and 5. respectively and set 2. and 3. to a new
-// state IF there's one, else, keeps it unchanged it avoids needlessly creating
-// new tables this function does not check if cursors are valid given their lines.
-// Returns { tab_stops: [number;4], paren_trails: [number;3], error: { name: string, message: string, row: number, col: number } }
-// and, if there's any difference between the new state and the previous state, a 4-element array describing their difference (See `diff_slice` for what that means).
-pub fn parinfer_run(lua: &mlua::Lua, value: mlua::Value) -> mlua::Result<mlua::MultiValue> {
-    let Some(table) = value.as_table() else {
-        return runtime_error!("expected table");
-    };
-    let convert_state = |(lines, [lnum, bytepos]): State| {
+impl mlua::FromLua for EditorState {
+    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
+        let Some(table) = value.as_table() else {
+            return runtime_error!("expected table");
+        };
+        let lines = table.get::<Vec<String>>(1)?;
+        let [lnum, bytepos] = table.get::<[usize; 2]>(2)?;
         let row = lnum - 1;
         let charpos = conversion::bytepos_to_charpos(&lines[row], bytepos);
-        (lines, [row, charpos])
-    };
-    let dialect: String = table.get(1)?;
-    // it's an error to provide one and not the other
-    let current_state = table
-        .get::<Vec<String>>(2)
-        .ok()
-        .zip(table.get::<Cursor>(3).ok())
-        .map(convert_state)
-        .map(Ok)
-        .unwrap_or(runtime_error!(
-            "invalid state, current_lines (2) or current_cursor (3) is missing"
-        ))?;
-    // previous lines and cursor, must be both present or both absent
-    // anything else is ignored since it's invalid
-    let previous_state = table
-        .get::<Vec<String>>(4)
-        .ok()
-        .zip(table.get::<Cursor>(5).ok())
-        .map(convert_state);
-    let (response, (new_lines, [new_row, new_charpos])) =
-        run(&dialect, &current_state, &previous_state);
-    let changes = conversion::diff_ranges(&current_state.0, &new_lines).map(
-        |(
-            Range { start, end },
-            Range {
-                start: start2,
-                end: end2,
-            },
-        )| { [start, end.saturating_sub(1), start2, end2.saturating_sub(1)] },
-    );
-
-    // current_state is now also the previous_state
-    table.set(4, table.get::<mlua::Value>(2)?)?;
-    table.set(5, table.get::<mlua::Value>(3)?)?;
-    let new_bytepos = conversion::charpos_to_bytepos(&new_lines[new_row], new_charpos);
-    table.set(3, [new_row + 1, new_bytepos])?;
-    table.set(2, new_lines)?;
-    lua.pack_multi((response, changes))
+        Ok(Self {
+            lines,
+            cursor: [row, charpos],
+        })
+    }
+}
+impl mlua::IntoLua for EditorState {
+    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
+        let table = lua.create_table()?;
+        let lines = self.lines;
+        let [row, charpos] = self.cursor;
+        let lnum = row + 1;
+        let bytepos = conversion::charpos_to_bytepos(&lines[row], charpos);
+        table.set(1, lines)?;
+        table.set(2, [lnum, bytepos])?;
+        Ok(mlua::Value::Table(table))
+    }
 }
 
-// 0: lines, 1: cursor
-type State = (Vec<String>, Cursor);
-
-fn run(
+pub fn run(
     dialect: &str,
-    (lines, [cursor_line, cursor_x]): &State,
-    previous_state: &Option<State>,
-) -> (IntegrationResponse, State) {
+    current_state: &EditorState,
+    previous_state: &Option<EditorState>,
+) -> (IntegrationResponse, EditorState) {
     let mut options = dialect_options(dialect);
-    options.cursor_line = Some(*cursor_line);
-    options.cursor_x = Some(*cursor_x);
+    options.cursor_line = Some(current_state.cursor[0]);
+    options.cursor_x = Some(current_state.cursor[1]);
 
-    if let Some((prev_lines, [prev_cursor_line, prev_cursor_x])) = previous_state {
-        options.prev_text = Some(prev_lines.join("\n"));
+    if let Some(EditorState {
+        lines,
+        cursor: [prev_cursor_line, prev_cursor_x],
+    }) = previous_state
+    {
+        options.prev_text = Some(lines.join("\n"));
         options.prev_cursor_line = Some(*prev_cursor_line);
         options.prev_cursor_x = Some(*prev_cursor_x);
     }
     let request = types::Request {
         mode: "smart".into(),
-        text: lines.join("\n"),
+        text: current_state.lines.join("\n"),
         options,
     };
     let answer = parinfer::process(&request);
-    let response = IntegrationResponse {
-        tab_stops: answer.tab_stops.iter().map(Into::into).collect(),
-        paren_trails: answer.paren_trails.iter().map(Into::into).collect(),
-        error: answer.error.as_ref().map(IntegrationError::new),
-    };
 
-    let new_lines = answer
+    let lines = answer
         .text
         .split('\n')
         .map(std::string::ToString::to_string)
@@ -113,7 +79,21 @@ fn run(
         .zip(answer.cursor_x)
         .map(Into::into)
         .unwrap();
-    (response, (new_lines, cursor))
+    let response = IntegrationResponse {
+        changes: conversion::diff_ranges(&current_state.lines, &lines).map(
+            |(
+                Range { start, end },
+                Range {
+                    start: start2,
+                    end: end2,
+                },
+            )| { [start, end.saturating_sub(1), start2, end2.saturating_sub(1)] },
+        ),
+        tab_stops: answer.tab_stops.iter().map(Into::into).collect(),
+        paren_trails: answer.paren_trails.iter().map(Into::into).collect(),
+        error: answer.error.as_ref().map(IntegrationError::new),
+    };
+    (response, EditorState { lines, cursor })
 }
 
 pub enum Direction {
@@ -166,14 +146,11 @@ fn test_shift_indent() {
     assert_eq!(shift_indent(&tab_stops, &Direction::Backward, 20), 10);
 }
 
-// ----------------------------------------------
-// collection of structs that we can mlua easily
-type Cursor = [usize; 2];
-struct IntegrationResponse {
+pub struct IntegrationResponse {
     tab_stops: Vec<[usize; 4]>,
-    // vector of [line_no, start_x, end_x], for each paren_trail i.e. `closers`
     paren_trails: Vec<[usize; 3]>,
     error: Option<IntegrationError>,
+    changes: Option<[usize; 4]>,
 }
 
 impl From<&types::TabStop<'_>> for [usize; 4] {
@@ -198,6 +175,7 @@ impl mlua::IntoLua for IntegrationResponse {
         info.set("tab_stops", self.tab_stops)?;
         info.set("paren_trails", self.paren_trails)?;
         info.set("error", self.error)?;
+        info.set("changes", self.changes)?;
         Ok(mlua::Value::Table(info))
     }
 }
@@ -287,7 +265,10 @@ fn test_run() {
     }
     macro_rules! editor_state {
         ($text:expr, $cursor:expr) => {
-            (string_split!($text), $cursor)
+            EditorState {
+                lines: string_split!($text),
+                cursor: $cursor,
+            }
         };
     }
     let dialect = "clojure";

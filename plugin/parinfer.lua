@@ -2,33 +2,62 @@ if vim.g.loaded_parinfer ~= nil then return end
 
 vim.g.loaded_parinfer = true
 
----@type parinfer_plugin_results
+---@alias cursor ([integer, integer])
+---@alias editor_state {[1]: string[], [2]: cursor}
+---@alias dialect string
+---@alias buffer_state {[1]: dialect, [2]: editor_state, [3]?: editor_state }
+---@class (exact) parinfer_error
+---@field name "quote-danger" |"eol-backslash" |"unclosed-quote" |"unclosed-paren" |"unmatched-close-paren" |"unmatched-open-paren" |"leading-close-paren" |"utf8-error" |"json-error" |"panic"
+---@field message string
+---@field col number
+---@field row number
+---@alias tab_stop ([number, number, 40|91|123, number])
+---@class (exact) parinfer_result
+---@field tab_stops tab_stop[]
+---@field paren_trails ([number, number, number])[]
+---@field error? parinfer_error
+---@field changes? ([number, number, number, number])
+
+---@type table<integer, parinfer_result> # parinfer results for each buffer
 local parinfer_results = {}
 
----@type parinfer_plugin_state
-local parinfer_states = {}
+---@type table<integer, {[1]: dialect, [2]: editor_state, [3]?: editor_state }>
+local parinfer_buffer_states = {}
 
+---rust library, must be compiled and on path
+---@class (exact) parinfer_lib
+---@field run fun(dialect: dialect, state: editor_state, previous_state: editor_state?): parinfer_result, editor_state
+---@field to_charpos fun(line: string, bytepos: number): number
+---@field to_bytepos fun(line: string, charpos: number): number
+---@field shift_indent fun(tab_stops: tab_stop[], dx: number, x: number): number
+local parinfer_lib = require("parinfer")
 ---------- format ----------
 ---runs parinfer on a buffer
 ---@param buf integer
 local parinfer_run = function(buf)
-  local state = parinfer_states[buf] or { vim.bo.filetype }
-  state[2] = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  state[3] = vim.api.nvim_win_get_cursor(0)
-  -- after the call to parinfer_lib.run
-  -- state[2] is now the new lines and state[3] is now the new cursor
-  -- state[4] and state[5] are the old state[2] and state[3] respectively
-  local result, changes = require("parinfer").run(state)
-  -- changes is nil if nothing needs fixing, which might happen even on successful runs
-  -- instead of checking the undotree, we try to undojoin, which throws when outside an undoleaf
-  -- it keeps state in sync and has less overhead than running undotree() and :silent! undojoin
-  if changes and pcall(vim.api.nvim_exec2, "silent undojoin", { output = false }) then
-    local changed_lines = table.move(state[2], changes[3] + 1, changes[4] + 1, 1, {})
+  local buffer_state = parinfer_buffer_states[buf]
+  if buffer_state == nil then
+    buffer_state = {
+      vim.api.nvim_get_option_value("filetype", { buf = buf }),
+      { vim.api.nvim_buf_get_lines(buf, 0, -1, false), vim.api.nvim_win_get_cursor(0) },
+    }
+  else
+    buffer_state[3][1] = buffer_state[2][1]
+    buffer_state[3][2] = buffer_state[2][2]
+    buffer_state[2] = { vim.api.nvim_buf_get_lines(buf, 0, -1, false), vim.api.nvim_win_get_cursor(0) }
+  end
+  local result, new_editor_state = parinfer_lib.run(unpack(buffer_state, 1, 3))
+  buffer_state[3] = buffer_state[2]
+  buffer_state[2] = new_editor_state
+  if result.changes and pcall(vim.api.nvim_exec2, "silent undojoin", { output = false }) then
+    local changes = result.changes
+    ---@cast changes -?
+    local changed_lines = table.move(buffer_state[2][1], changes[3] + 1, changes[4] + 1, 1, {})
     vim.api.nvim_buf_set_lines(buf, changes[1], changes[2] + 1, false, changed_lines)
-    vim.api.nvim_win_set_cursor(0, state[3])
+    vim.api.nvim_win_set_cursor(0, buffer_state[2][2])
   end
   parinfer_results[buf] = result
-  parinfer_states[buf] = state
+  parinfer_buffer_states[buf] = buffer_state
 end
 
 -- decorations
@@ -51,7 +80,7 @@ local parinfer_decoration_provider = {
     local lines = vim.api.nvim_buf_get_lines(bufnr, toprow, botrow + 1, false)
     ---@type vim.api.keyset.set_extmark
     local extmark_opts = { ephemeral = true, hl_group = "ParinferParenTrail", hl_mode = "combine" }
-    local to_bytepos = require("parinfer").to_bytepos
+    local to_bytepos = parinfer_lib.to_bytepos
     for _, paren_trail in ipairs(paren_trails) do
       local line_no = paren_trail[1]
       if line_no >= toprow and line_no <= botrow then
@@ -83,7 +112,7 @@ local parinfer_shift_indent = function(dx)
 
   local line = vim.api.nvim_get_current_line()
   local indent = select(2, line:find("^%s*"))
-  local new_indent = require("parinfer").shift_indent(response.tab_stops, dx, indent)
+  local new_indent = parinfer_lib.shift_indent(response.tab_stops, dx, indent)
   if new_indent == indent then return end
   local new_line = string.gsub(line, "^%s*", string.rep(" ", new_indent))
   vim.api.nvim_set_current_line(new_line)
@@ -126,51 +155,10 @@ vim.api.nvim_set_keymap("i", "<plug>(parinfer-dedent)", "", { noremap = true, ca
 --- commands
 vim.api.nvim_create_user_command("ParinferDecorations", parinfer_decorations, { force = true, nargs = "?" })
 vim.api.nvim_set_hl(0, "ParinferParenTrail", { link = "NonText" })
+
 --- autocmds
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "clojure", "scheme", "lisp", "racket", "hy", "fennel", "janet", "carp", "wast", "yuck", "dune", "chicken", "query" },
+  pattern = vim.g.parinfer_filetypes or { "clojure", "scheme", "lisp", "racket", "hy", "fennel", "janet", "carp", "wast", "yuck", "dune", "chicken", "query" },
   group = vim.api.nvim_create_augroup("parinfer", { clear = true }),
   callback = parinfer_on_filetype,
 })
-
----
----@class (exact) parinfer_lib.error
----@field name "quote-danger" |"eol-backslash" |"unclosed-quote" |"unclosed-paren" |"unmatched-close-paren" |"unmatched-open-paren" |"leading-close-paren" |"utf8-error" |"json-error" |"panic"
----@field message string
----@field col number
----@field row number
----
----@class (exact) parinfer_lib.editor_state
----@field [1] string
----@field [2] string[]
----@field [3] ([number, number])
----@field private [4]? string[]
----@field private [5]? ([number, number])
----
----@alias parinfer_lib_tab_stop ([number, number, 40|91|123, number])
----
----@class (exact) parinfer_lib.result
----@field tab_stops ([number, number, 40|91|123, number])[]
----@field paren_trails ([number, number, number])[]
----@field error? parinfer_lib.error
----
----@class (exact) parinfer_lib.changes
----@field [1] number # insert start
----@field [2] number # insert stop
----@field [3] number # range start
----@field [4] number # range stop
----
----parinfer results for each buffer
----@class (exact) parinfer_plugin_results
----@field [number]? parinfer_lib.result # parinfer results for each buffer
----
----parinfer state for each buffer
----@class (exact) parinfer_plugin_state
----@field [number]? parinfer_lib.editor_state # parinfer state for each buffer
----
----rust library, must be compiled and on path
----@class (exact) parinfer_lib
----@field run fun(state: parinfer_lib.editor_state): parinfer_lib.result, parinfer_lib.changes?
----@field to_charpos fun(line: string, bytepos: number): number
----@field to_bytepos fun(line: string, charpos: number): number
----@field shift_indent fun(tab_stops: parinfer_lib_tab_stop[], dx: number, x: number): number
