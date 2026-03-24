@@ -1,3 +1,4 @@
+use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -26,27 +27,27 @@ pub fn charpos_to_bytepos(line: &str, charcol: usize) -> usize {
         .map_or(line.len(), |(i, _)| i)
 }
 
-type Diff = [usize; 4];
-/// Converts two slices `a` and `b` to their differing ranges
-/// given
-/// - `a = [0,1,2,3]`
-/// - `b = [3,2,1,0]`
-///
-/// then `diff = [0, 3, 0, 3]` where
-/// - `a[diff[0]..=diff[1]]` is which slice of a is different from b
-/// - `b[diff[2]..=diff[3]]` is which slice of b is different from a
-pub fn diff_slice<T: std::cmp::Eq>(a: &[T], b: &[T]) -> Option<Diff> {
-    if a.is_empty() && b.is_empty() {
-        // they're equally empty
-        return None;
-    } else if a.is_empty() || b.is_empty() {
-        // one is empty, other is not
-        return Some([0, a.len().saturating_sub(1), 0, b.len().saturating_sub(1)]);
-    }
-    let mut it = a.iter().enumerate().zip(b.iter().enumerate());
-    let stop = it.rfind(|(a, b)| a != b)?;
-    let start = it.find(|(a, b)| a != b).unwrap_or(stop); // we've exausted the iterator, so only a single element is different
-    Some([start.0.0, stop.0.0, start.1.0, stop.1.0])
+/// Identifies the smallest range in `a` and `b` that differs,
+/// performing a parallel index-by-index comparison.
+pub fn diff_ranges<T: std::cmp::Eq>(a: &[T], b: &[T]) -> Option<(Range<usize>, Range<usize>)> {
+    let max_len = a.len().max(b.len());
+
+    // Find the first index where the elements don't match (or one is missing)
+    let start = (0..max_len).find(|&i| a.get(i) != b.get(i))?;
+
+    // Find the last index where they don't match
+    let stop = (0..max_len)
+        .rfind(|&i| a.get(i) != b.get(i))
+        .unwrap_or(start);
+
+    // Calculate exclusive bounds, capping at the actual length of each slice
+    let end_a = (stop + 1).min(a.len());
+    let end_b = (stop + 1).min(b.len());
+
+    let start_a = start.min(a.len());
+    let start_b = start.min(b.len());
+
+    Some((start_a..end_a, start_b..end_b))
 }
 
 #[cfg(test)]
@@ -67,22 +68,25 @@ mod tests {
     }
 
     #[quickcheck_macros::quickcheck]
-    fn diff_slice_chunks(a: Vec<u8>, b: Vec<u8>) -> bool {
-        if let Some([start_a, end_a, start_b, end_b]) = diff_slice(&a, &b) {
-            // if they're different
-            // at least one isn't empty
+    fn diff_range_works(a: Vec<u8>, b: Vec<u8>) -> bool {
+        if let Some((range_a, range_b)) = diff_ranges(&a, &b) {
+            // A difference was found, so they cannot be identical empty slices
             if a.is_empty() && b.is_empty() {
                 return false;
             }
-            // everything left of start is the same
-            let left = a[0..start_a] == b[0..start_b];
-            let right_start_a = std::cmp::min(end_a, a.len());
-            let right_start_b = std::cmp::min(end_b, b.len());
-            // and everything right of end is the same
-            let right = a[right_start_a..end_a] == b[right_start_b..end_b];
-            left && right
+
+            let left = a[..range_a.start] == b[..range_b.start];
+
+            // 2. Everything strictly right of the difference must be identical
+            let right = a[range_a.end..] == b[range_b.end..];
+
+            // 3. (Optional but good) The differing ranges themselves shouldn't be identical
+            // Unless one is empty and the other isn't (an insertion/deletion)
+            let middle_differs = a[range_a.clone()] != b[range_b.clone()];
+
+            left && right && middle_differs
         } else {
-            // if there's no difference, they're equal
+            // If there's no difference, the slices must be exactly equal
             a == b
         }
     }
@@ -123,20 +127,22 @@ mod tests {
     }
 
     #[test]
-    fn test_diff_slice() {
+    fn test_diff_ranges() {
         let samples = [
-            (vec![1, 2, 3], vec![3, 2, 1], Some([0, 2, 0, 2])),
-            (vec![1, 2, 3, 4], vec![1, 2, 4, 3], Some([2, 3, 2, 3])),
-            (vec![1, 2, 3, 4], vec![1, 2, 4, 4], Some([2, 2, 2, 2])),
-            (vec![], vec![1, 2, 4, 4], Some([0, 0, 0, 3])),
-            (vec![1, 2, 4, 4], vec![], Some([0, 3, 0, 0])),
+            (vec![1, 2, 3], vec![3, 2, 1], Some((0..3, 0..3))),
+            (vec![1, 2, 3, 4], vec![1, 2, 4, 3], Some((2..4, 2..4))),
+            (vec![1, 2, 3, 4], vec![1, 2, 4, 4], Some((2..3, 2..3))),
+            (vec![], vec![1, 2, 4, 4], Some((0..0, 0..4))),
+            (vec![1, 2, 4, 4], vec![], Some((0..4, 0..0))),
+            (vec![1, 2], vec![1, 2, 3], Some((2..2, 2..3))),
         ];
         for (a, b, expected_diff) in samples {
-            let diff = diff_slice(&a, &b);
+            let diff = diff_ranges(&a, &b);
             assert_eq!(
                 diff, expected_diff,
                 "{a:?} {b:?} {diff:?} {expected_diff:?}",
             );
         }
     }
+
 }

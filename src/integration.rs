@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use crate::conversion;
 use crate::parinfer;
 use crate::types;
@@ -53,7 +55,14 @@ pub fn parinfer_run(lua: &mlua::Lua, value: mlua::Value) -> mlua::Result<mlua::M
         .map(convert_state);
     let (response, (new_lines, [new_row, new_charpos])) =
         run(&dialect, &current_state, &previous_state);
-    let changes = conversion::diff_slice(&current_state.0, &new_lines);
+    let changes = conversion::diff_ranges(&current_state.0, &new_lines).map(
+        |(
+            Range { start, end },
+            Range { start: start2, end: end2 },
+        )| {
+            [ start, end.saturating_sub(1), start2, end2.saturating_sub(1) ]
+        },
+    );
 
     // current_state is now also the previous_state
     table.set(4, table.get::<mlua::Value>(2)?)?;
