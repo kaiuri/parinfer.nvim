@@ -1,3 +1,4 @@
+-- Note: This plugin makes use of private api `vim._getvar` for performance reasons as vim.b will create a metatable unless we cache
 if vim.g.loaded_parinfer ~= nil then return end
 
 vim.g.loaded_parinfer = true
@@ -34,6 +35,15 @@ local parinfer_lib = require("parinfer")
 
 ---@param buf integer
 local parinfer_run = function(buf)
+  if not (vim.api.nvim_buf_is_loaded(buf) and vim.api.nvim_buf_is_valid(buf)) then
+    return
+  end
+  local changedtick = vim.api.nvim_buf_get_changedtick(buf)
+  if vim._getvar("b", buf, "parinfer_changedtick") == changedtick then
+    return
+  end
+  vim._setvar("b", buf, "parinfer_changedtick", changedtick)
+
   local buffer_state = parinfer_buffer_states[buf]
   if buffer_state == nil then
     buffer_state = {
@@ -124,7 +134,11 @@ end
 
 ---@param ctx vim.api.keyset.create_autocmd.callback_args
 local parinfer_on_filetype = function(ctx)
-  if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly or vim.b.dev_base then return end
+  if vim.wo.previewwindow or not vim.bo.modifiable or vim.bo.readonly
+    or vim._getvar("b", ctx.buf, "dev_base") --> treesitter `InspectTree` buffer
+  then
+    return
+  end
 
   vim.api.nvim_buf_set_var(ctx.buf, "parinfer_enabled", true)
   vim.api.nvim_exec_autocmds("User", { pattern = "Parinfer", modeline = false })
