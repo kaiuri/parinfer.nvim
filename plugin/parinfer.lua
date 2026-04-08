@@ -38,11 +38,6 @@ local parinfer_run = function(buf)
   if not (vim.api.nvim_buf_is_loaded(buf) and vim.api.nvim_buf_is_valid(buf)) then
     return
   end
-  local changedtick = vim.api.nvim_buf_get_changedtick(buf)
-  if vim._getvar("b", buf, "parinfer_changedtick") == changedtick then
-    return
-  end
-  vim._setvar("b", buf, "parinfer_changedtick", changedtick)
 
   local buffer_state = parinfer_buffer_states[buf]
   if buffer_state == nil then
