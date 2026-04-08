@@ -150,6 +150,7 @@ local parinfer_on_filetype = function(ctx)
   })
   vim.api.nvim_buf_set_keymap(ctx.buf, "i", "<c-t>", "<plug>(parinfer-indent)", { noremap = true })
   vim.api.nvim_buf_set_keymap(ctx.buf, "i", "<c-d>", "<plug>(parinfer-dedent)", { noremap = true })
+  vim.api.nvim_buf_create_user_command(ctx.buf, "ParinferToggle", "call setbufvar(bufnr(),'parinfer_enabled', getbufvar(bufnr(),'parinfer_enabled',v:true) ? v:false : v:true)", { force = true })
 end
 
 -- init plugin
