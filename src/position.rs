@@ -1,6 +1,5 @@
 use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 /// Converts a byte column 0-indexed to its visual column counterpart.
 /// Will look for the first visual column whose byte column is either exactly equal to itself or greater than it.
@@ -13,7 +12,7 @@ use unicode_width::UnicodeWidthStr;
 pub fn bytepos_to_charpos(line: &str, bytecol: usize) -> usize {
     line.grapheme_indices(true)
         .position(|(i, _)| i >= bytecol)
-        .unwrap_or_else(|| line.width_cjk())
+        .unwrap_or_else(|| line.grapheme_indices(true).count())
 }
 /// Converts a visual column 0-indexed to its byte column counterpart.
 ///

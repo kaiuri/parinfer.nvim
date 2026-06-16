@@ -158,3 +158,10 @@ vim.api.nvim_create_autocmd("FileType", {
   group = vim.api.nvim_create_augroup("parinfer", { clear = true }),
   callback = parinfer_on_filetype,
 })
+vim.api.nvim_create_user_command("ParinferDebug", function(args)
+  local buf = vim.api.nvim_get_current_buf()
+  vim.print({
+    result = parinfer_results[buf],
+    state = parinfer_buffer_states[buf],
+  })
+end, { force = true })
